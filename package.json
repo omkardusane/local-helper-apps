@@ -1,0 +1,33 @@
+{
+  "name": "personal-helper",
+  "version": "1.0.0",
+  "description": "runs on your local machine to assist with random chores.",
+  "license": "UNLICENSED",
+  "author": "omkardusane",
+  "type": "module",
+  "main": "rememberane/index.ts",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node rememberane/index.ts",
+    "dev": "node --watch rememberane/index.ts",
+    "typecheck": "tsc --noEmit",
+    "emails:pull": "node --env-file=.env organize-emails/pull.ts",
+    "emails:classify": "node --env-file=.env organize-emails/classify.ts",
+    "emails:ui": "node --env-file=.env organize-emails/server.ts"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "imapflow": "^2.5.8",
+    "mailparser": "^3.10.0",
+    "mongodb": "^7.7.0",
+    "ollama": "^0.6.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
