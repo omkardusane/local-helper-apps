@@ -20,7 +20,7 @@ const skill = await readFile(skillPath(model), "utf8");
 
 const id = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(RUNS, id);
-const meta: RunMeta = { id, batch, model, createdAt: new Date().toISOString() };
+const meta: RunMeta = { id, batch, model, createdAt: new Date().toISOString(), ...(process.env.RUN_TAG && { tag: process.env.RUN_TAG }) };
 await writeJson(join(runDir, "meta.json"), meta);
 await copyFile(skillPath(model), join(runDir, "skill.md"));
 
@@ -75,14 +75,21 @@ function parseLayaSkill(markdown: string) {
 
 const laya = isLaya(model) ? parseLayaSkill(skill) : null;
 
-async function classifyLaya(email: Email): Promise<Result> {
+async function classifyLaya(email: Email, chars = LAYA_BODY_CHARS): Promise<Result> {
   const { threshold, ...question } = laya!;
-  // `systemone` is laya's API; it isn't in the client's typings
-  const response = await (ollama as any).systemone({
-    model,
-    state: describe(email, LAYA_BODY_CHARS),
-    questions: { important: { type: "noul", ...question } },
-  });
+  let response;
+  try {
+    // `systemone` is laya's API; it isn't in the client's typings
+    response = await (ollama as any).systemone({
+      model,
+      state: describe(email, chars),
+      questions: { important: { type: "noul", ...question } },
+    });
+  } catch (error) {
+    // dense text (emoji, non-latin) can overflow the 1024-token context even when short in characters
+    if (/context length/i.test((error as Error).message) && chars > 200) return classifyLaya(email, Math.floor(chars / 2));
+    throw error;
+  }
 
   const score = Number(response.answers.important.noul);
   if (Number.isNaN(score)) throw new Error(`unexpected laya response: ${JSON.stringify(response)}`);
@@ -103,5 +110,10 @@ for (const [index, file] of files.entries()) {
 }
 
 await writeJson(join(runDir, "results.json"), results);
-console.log(`\nrun ${id} (${model}) done, ${results.filter((r) => r.important === null).length} errors`);
+const failed = results.filter((r) => r.important === null).length;
+console.log(`\nrun ${id} (${model}) done, ${failed} errors`);
+if (failed > results.length * 0.05) {
+  console.warn(`WARNING: ${failed}/${results.length} emails failed (${results.find((r) => r.important === null)?.reason}).`);
+  console.warn("Failed emails are not rated or scored. Check that ollama is up, then rerun this batch.");
+}
 console.log("rate it: npm run emails:ui");

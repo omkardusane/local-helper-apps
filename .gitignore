@@ -4,3 +4,4 @@ dist/
 *.env
 organize-emails/batches/
 organize-emails/runs/
+secrets/

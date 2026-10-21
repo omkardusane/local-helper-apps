@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apps</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--text:#1d2330;--muted:#6b7280;--border:#e3e6eb;
+  --accent:#2f6fec;--accent-soft:#e8f0fe;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#14171c;--panel:#1c2027;--text:#e6e9ef;--muted:#9aa3b2;--border:#2c323c;
+    --accent:#6b9bff;--accent-soft:#22304a;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:28px 20px 8px;max-width:1000px;margin:0 auto}
+header h1{font-size:22px;margin:0 0 4px}
+header p{margin:0;color:var(--muted);font-size:13px}
+main{max-width:1000px;margin:0 auto;padding:20px;display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+a.app{display:block;text-decoration:none;color:inherit;background:var(--panel);
+  border:1px solid var(--border);border-radius:12px;padding:16px;
+  transition:border-color .15s,transform .15s,box-shadow .15s}
+a.app:hover,a.app:focus-visible{border-color:var(--accent);transform:translateY(-2px);
+  box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
+.app-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+  background:var(--accent-soft);color:var(--accent);font-size:20px;margin-bottom:12px}
+.app h2{font-size:15px;margin:0 0 4px}
+.app p{margin:0;font-size:12.5px;color:var(--muted)}
+.app code{font-size:11.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Apps</h1>
+  <p>Personal tools</p>
+</header>
+<main>
+  <a class="app" href="./job-tracker/index.html">
+    <div class="app-icon">💼</div>
+    <h2>Job Tracker</h2>
+    <p>Track applications, contacts, and interview progress.</p>
+  </a>
+  <a class="app" href="http://localhost:3100/">
+    <div class="app-icon">📬</div>
+    <h2>Email Organizer</h2>
+    <p>Find the emails that deserve your attention. Needs <code>npm run emails:ui</code> running.</p>
+  </a>
+</main>
+</body>
+</html>

@@ -28,7 +28,7 @@ export type Result = {
 export type Verdict = "right" | "wrong" | "skip";
 export type Rating = { verdict: Verdict; note: string };
 
-export type RunMeta = { id: string; batch: string; model: string; createdAt: string };
+export type RunMeta = { id: string; batch: string; model: string; createdAt: string; tag?: string }; // tag "recent" = started from the landing page, not a training round
 
 export type Metrics = {
   rated: number;

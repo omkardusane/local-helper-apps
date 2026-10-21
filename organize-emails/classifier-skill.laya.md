@@ -1,11 +1,11 @@
 ## instructions
-Does this email require the reader to act, decide, reply, pay, attend, or know something time-sensitive?
+Is this a notification of something that happened to the reader's own account or a direct mention of the reader, such as a security alert, verification, receipt, or mention of me?
 
 ## true
-The email is from a real person or a service the reader relies on (bank, employer, government, health, travel, delivery) and needs action or is time-sensitive.
+Mention of me. Security alert. Account recovered. Verify email. Purchase receipt. Data shared from my account.
 
 ## false
-The email is a newsletter, promotion, marketing, social notification, automated digest, a receipt with nothing to act on, or a mass mailing.
+Sale, discount, deal, offer, plan promotion, newsletter, digest, blog post, webinar invitation or product update from a brand. Reddit reply. Social media notification.
 
 ## threshold
-0.5
+0.53
