@@ -12,16 +12,11 @@
   "scripts": {
     "start": "node rememberane/index.ts",
     "dev": "node --watch rememberane/index.ts",
-    "typecheck": "tsc --noEmit",
-    "emails:pull": "node --env-file=.env organize-emails/pull.ts",
-    "emails:classify": "node --env-file=.env organize-emails/classify.ts",
-    "emails:ui": "node --env-file=.env organize-emails/server.ts",
-    "emails:auth": "node organize-emails/auth.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "express": "^5.3.0",
-    "mongodb": "^7.7.0",
-    "ollama": "^0.6.4"
+    "mongodb": "^7.7.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

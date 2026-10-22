@@ -1,26 +1,24 @@
 import { createHash, randomBytes } from "node:crypto";
-import { execFile } from "node:child_process";
 import { chmod, readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
-import { ROOT, safeId } from "./lib.ts";
+import { CLIENT_DIR, openUrl, safeId, TOKENS } from "./lib.ts";
 
 // read-only is all the pull needs; it can't send, delete or modify mail
 const SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const SECRETS = join(ROOT, "..", "secrets");
 
 /** One saved sign-in per inbox. The default account keeps the original file name. */
 export const DEFAULT_ACCOUNT = "default";
-const tokenFile = (account: string) => join(SECRETS, account === DEFAULT_ACCOUNT ? "gmail-token.json" : `gmail-token.${safeId(account)}.json`);
+const tokenFile = (account: string) => join(TOKENS, account === DEFAULT_ACCOUNT ? "gmail-token.json" : `gmail-token.${safeId(account)}.json`);
 
 type Client = { client_id: string; client_secret: string; auth_uri: string; token_uri: string };
 type TokenResponse = { access_token: string; expires_in: number; refresh_token?: string; error?: string; error_description?: string };
 
 async function loadClient(): Promise<Client> {
-  const file = (await readdir(SECRETS)).find((name) => name.startsWith("client_secret") && name.endsWith(".json"));
-  if (!file) throw new Error("no client_secret_*.json found in secrets/");
+  const file = (await readdir(CLIENT_DIR)).find((name) => name.startsWith("client_secret") && name.endsWith(".json"));
+  if (!file) throw new Error(`no client_secret_*.json found in ${CLIENT_DIR}`);
 
-  const json = JSON.parse(await readFile(join(SECRETS, file), "utf8")) as { installed?: Client };
+  const json = JSON.parse(await readFile(join(CLIENT_DIR, file), "utf8")) as { installed?: Client };
   if (!json.installed) throw new Error("expected a Desktop app OAuth client (an `installed` section)");
   return json.installed;
 }
@@ -83,7 +81,7 @@ export async function authorize(account = DEFAULT_ACCOUNT): Promise<void> {
       }).toString();
 
       console.log(`opening browser to sign in (scope: ${SCOPE})\nif nothing opens, visit:\n${auth}`);
-      execFile("open", [auth.toString()], () => {});
+      openUrl(auth.toString());
     });
   });
 
@@ -94,13 +92,13 @@ export async function authorize(account = DEFAULT_ACCOUNT): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify({ refresh_token: token.refresh_token, scope: SCOPE }), { mode: 0o600 });
   await chmod(file, 0o600);
-  console.log(`signed in as account "${account}"; refresh token saved under secrets/`);
+  console.log(`signed in as account "${account}"; refresh token saved in ${TOKENS}`);
 }
 
 /** Short-lived access token from the saved refresh token. Kept in memory only. */
 export async function getAccessToken(account = DEFAULT_ACCOUNT): Promise<string> {
   const saved = await readFile(tokenFile(account), "utf8").catch(() => {
-    throw new Error(`account "${account}" is not signed in: run \`npm run emails:auth -- ${account}\` first`);
+    throw new Error(`account "${account}" is not signed in: run \`npm run auth -- ${account}\` first`);
   });
   const { refresh_token } = JSON.parse(saved) as { refresh_token: string };
   return (await requestToken(await loadClient(), { grant_type: "refresh_token", refresh_token })).access_token;

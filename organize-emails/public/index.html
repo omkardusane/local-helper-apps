@@ -3,150 +3,219 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Email trainer</title>
+<title>Email Organizer</title>
 <style>
-  :root { --bg:#fafaf9; --card:#fff; --ink:#1c1917; --mute:#78716c; --line:#e7e5e4; --ok:#15803d; --bad:#b91c1c; --accent:#1d4ed8; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#161513; --card:#1f1d1b; --ink:#f5f5f4; --mute:#a8a29e; --line:#33302d; --ok:#4ade80; --bad:#f87171; --accent:#60a5fa; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
-  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; padding:12px 24px; border-bottom:1px solid var(--line); background:var(--card); }
-  select, button, textarea { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 12px; }
-  button { cursor:pointer; }
-  button:hover { border-color:var(--mute); }
-  .stat { color:var(--mute); } .stat b { color:var(--ink); font-weight:600; }
-  main { display:grid; grid-template-columns:minmax(0,3fr) minmax(280px,2fr); gap:20px; max-width:1200px; margin:20px auto; padding:0 24px; }
-  @media (max-width:800px) { main { grid-template-columns:1fr; } }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
-  h2 { margin:0 0 4px; font-size:18px; }
-  .meta { color:var(--mute); font-size:13px; margin-bottom:12px; }
-  pre { white-space:pre-wrap; word-break:break-word; font:inherit; margin:0; max-height:60vh; overflow:auto; }
-  .call { font-size:20px; font-weight:600; margin:0 0 4px; }
-  .reason { color:var(--mute); margin-bottom:16px; }
-  .bar { display:block; height:6px; margin-top:6px; border-radius:3px; background:var(--line); }
-  .bar i { display:block; height:100%; border-radius:3px; background:var(--accent); }
-  .row { display:flex; gap:8px; margin-bottom:12px; }
-  .row button { flex:1; font-weight:600; }
-  button.right.on { background:var(--ok); border-color:var(--ok); color:#fff; }
-  button.wrong.on { background:var(--bad); border-color:var(--bad); color:#fff; }
-  button.skip.on { background:var(--mute); border-color:var(--mute); color:#fff; }
-  textarea { width:100%; resize:vertical; min-height:80px; }
-  kbd { font:12px monospace; border:1px solid var(--line); border-radius:4px; padding:0 4px; color:var(--mute); }
-  .nav { display:flex; justify-content:space-between; align-items:center; margin-top:12px; color:var(--mute); font-size:13px; }
-  .empty { max-width:560px; margin:80px auto; text-align:center; color:var(--mute); }
+:root{
+  --bg:#f6f7f9;--panel:#fff;--text:#1d2330;--muted:#6b7280;--border:#e3e6eb;
+  --accent:#2f6fec;--accent-soft:#e8f0fe;--ok:#1f9d55;--bad:#c53030;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#14171c;--panel:#1c2027;--text:#e6e9ef;--muted:#9aa3b2;--border:#2c323c;
+    --accent:#6b9bff;--accent-soft:#22304a;--ok:#4ade80;--bad:#f87171;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px 48px}
+h1{font-size:26px;margin:36px 0 6px}
+.lead{margin:0 0 24px;color:var(--muted);font-size:15px}
+section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 10px}
+p{margin:0 0 10px}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+ol.steps{margin:0;padding-left:20px}
+ol.steps li{margin-bottom:6px}
+.row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+button,.btn{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;text-decoration:none;display:inline-block}
+button.ghost,.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+button:disabled{opacity:.5;cursor:default}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12.5px;background:var(--accent-soft);color:var(--accent)}
+.pill.ok{background:transparent;border:1px solid var(--ok);color:var(--ok)}
+.pill.bad{background:transparent;border:1px solid var(--bad);color:var(--bad)}
+.metrics{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 12px}
+.metrics b{font-size:17px;display:block}
+.metrics span{color:var(--muted);font-size:12px}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--muted);font-size:13px}
+pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font:12.5px/1.45 ui-monospace,Menlo,monospace;margin:8px 0 0}
+.big{font-size:34px;font-weight:650;line-height:1.1}
+ul.mails{list-style:none;margin:12px 0 0;padding:0}
+ul.mails li{padding:8px 0;border-top:1px solid var(--border)}
+ul.mails .from{color:var(--muted);font-size:12.5px}
+.err{color:var(--bad)}
+.offline{max-width:560px;margin:100px auto;text-align:center;color:var(--muted)}
+code{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font:12.5px ui-monospace,Menlo,monospace}
 </style>
 </head>
 <body>
-<header>
-  <select id="run" aria-label="Run"></select>
-  <span class="stat" id="stats"></span>
-  <label class="stat"><input type="checkbox" id="unrated"> unrated only</label>
-  <button id="copy" style="margin-left:auto">Copy report for Opus</button>
-</header>
-<div id="app"></div>
+<div class="wrap" id="page">
+  <h1>Email Organizer</h1>
+  <p class="lead">A local classifier that learns which emails deserve your attention. Your mail never leaves this machine.</p>
+
+  <section>
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><b>Connect Gmail</b> with read-only access.</li>
+      <li><b>Train it:</b> pull a batch, see what the local model flags, and tell it where it is wrong. The skill file is refined from your corrections.</li>
+      <li><b>Use it:</b> classify the last few days and see what needs you today.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>1. Gmail</h2>
+    <div class="row">
+      <span class="pill" id="authPill">checking…</span>
+      <button id="signIn" disabled>Sign in with Gmail</button>
+    </div>
+    <p class="muted small" style="margin-top:10px">Read-only access (it can't send, delete or change mail). The sign-in token is stored only on this computer, in <code>secrets/</code>. <span id="authMsg"></span></p>
+  </section>
+
+  <section>
+    <h2>2. Tell it about you</h2>
+    <p class="muted">The rules it starts with are the same for everyone. Look through the senders in your first batch, say which ones matter to you, and add a line about what's going on in your life. It uses your answers in every run.</p>
+    <div class="row">
+      <a class="btn" href="/setup.html">Personalize</a>
+      <span class="muted small" id="ctxInfo"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Train your classifier</h2>
+    <div id="training" class="muted">loading…</div>
+    <div class="row" style="margin-top:6px">
+      <a class="btn" href="/train.html">Open the trainer</a>
+    </div>
+    <details>
+      <summary>Current skill (the text being tuned)</summary>
+      <pre id="skill"></pre>
+    </details>
+  </section>
+
+  <section>
+    <h2>4. Check your recent mail</h2>
+    <div class="row">
+      <button id="classify" disabled>Classify the last 3 days</button>
+      <span class="muted" id="jobMsg"></span>
+    </div>
+    <div id="summary" style="margin-top:16px"></div>
+  </section>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const pct = (n) => (n * 100).toFixed(0) + '%';
-let items = [], index = 0, runId = null;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' })[c]);
+const pct = (n) => Math.round(n * 100) + '%';
+let signedIn = false;
 
-const api = (path, options) => fetch('/api' + path, options).then((r) => r.ok ? r : Promise.reject(new Error(r.status)));
-const label = (v) => v === null ? 'Model error' : v ? 'Important' : 'Not important';
-const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' })[c]);
-
-function showStats(m) {
-  $('stats').innerHTML = `rated <b>${m.rated}/${m.total}</b> · agreement <b>${pct(m.agreement)}</b> · precision <b>${pct(m.precision)}</b> · recall <b>${pct(m.recall)}</b> · F1 <b>${pct(m.f1)}</b>${m.auc === null ? '' : ` · AUC <b>${pct(m.auc)}</b>`}`;
+async function api(path, options) {
+  const response = await fetch('/api' + path, options);
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error ?? 'request failed (' + response.status + ')');
+  return body;
 }
 
-function visible() {
-  return items.filter((it) => it.result.important !== null && (!$('unrated').checked || !it.rating));
+/* gmail */
+
+async function loadAuth() {
+  const status = await api('/auth/status');
+  signedIn = status.signedIn;
+  $('authPill').className = 'pill ' + (status.signedIn ? 'ok' : 'bad');
+  $('authPill').textContent = status.signedIn ? 'Signed in' + (status.email ? ' as ' + status.email : '') : 'Not signed in';
+  $('signIn').textContent = status.signedIn ? 'Switch account' : 'Sign in with Gmail';
+  $('signIn').className = status.signedIn ? 'ghost' : '';
+  $('signIn').disabled = status.signingIn;
+  $('classify').disabled = !status.signedIn || $('classify').dataset.busy === '1';
 }
 
-function render() {
-  const list = visible();
-  if (list.length === 0) {
-    $('app').innerHTML = `<div class="empty">${items.length ? 'Nothing left to rate in this run.' : 'No runs yet. Pull a batch and classify it:<br><br><code>npm run emails:pull -- 2026-10-01</code><br><code>npm run emails:classify -- &lt;batch-id&gt;</code>'}</div>`;
-    return;
+$('signIn').onclick = async () => {
+  if (signedIn && !confirm('This replaces the saved sign-in for this account. Continue?')) return;
+  $('signIn').disabled = true;
+  $('authMsg').className = 'muted';
+  $('authMsg').textContent = 'Finish signing in in the browser tab that just opened…';
+  try {
+    await api('/auth/start', { method: 'POST' });
+    $('authMsg').textContent = '';
+  } catch (error) {
+    $('authMsg').className = 'err';
+    $('authMsg').textContent = error.message;
   }
-  index = Math.min(Math.max(index, 0), list.length - 1);
-  const { email, result, rating } = list[index];
-  const on = (v) => rating?.verdict === v ? ' on' : '';
-
-  $('app').innerHTML = `<main>
-    <section class="card">
-      <h2>${esc(email.subject)}</h2>
-      <div class="meta">${esc(email.from)} · ${email.date.slice(0, 10)}</div>
-      <pre>${esc(email.text || '(empty body)')}</pre>
-    </section>
-    <section class="card">
-      <p class="call">${label(result.important)}</p>
-      ${result.score === undefined ? `<p class="reason">${esc(result.reason)}</p>` : `<p class="reason">score ${result.score.toFixed(2)}<span class="bar"><i style="width:${result.score * 100}%"></i></span></p>`}
-      <div class="row">
-        <button class="right${on('right')}" data-v="right">Right <kbd>y</kbd></button>
-        <button class="wrong${on('wrong')}" data-v="wrong">Wrong <kbd>n</kbd></button>
-        <button class="skip${on('skip')}" data-v="skip">Skip <kbd>s</kbd></button>
-      </div>
-      <textarea id="note" placeholder="Why? (optional, Opus reads this)">${esc(rating?.note ?? '')}</textarea>
-      <div class="nav"><button id="prev">← prev</button><span>${index + 1} / ${list.length}</span><button id="next">next →</button></div>
-    </section>
-  </main>`;
-
-  document.querySelectorAll('[data-v]').forEach((b) => b.onclick = () => rate(b.dataset.v, true));
-  $('note').onblur = () => rating && rate(rating.verdict, false);
-  $('prev').onclick = () => { index--; render(); };
-  $('next').onclick = () => { index++; render(); };
-}
-
-async function rate(verdict, advance) {
-  const list = visible();
-  const item = list[index];
-  const note = $('note').value;
-  if (item.rating?.verdict === verdict && item.rating.note === note) return advance ? (index++, render()) : undefined;
-
-  item.rating = { verdict, note };
-  const metrics = await (await api(`/runs/${runId}/ratings/${item.email.id}`, {
-    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item.rating),
-  })).json();
-  showStats(metrics);
-  // when filtering to unrated, the rated item leaves the list, so the index already points at the next one
-  if (advance && !$('unrated').checked) index++;
-  render();
-}
-
-async function load(id) {
-  runId = id;
-  const data = await (await api('/runs/' + id)).json();
-  items = data.items;
-  index = 0;
-  showStats(data.metrics);
-  render();
-}
-
-async function init() {
-  const runs = await (await api('/runs')).json();
-  $('run').innerHTML = runs.map((r) => `<option value="${r.id}">${r.id.slice(0, 16).replace('T', ' ')} · ${r.model.split(':')[0]} · ${r.batch} · F1 ${pct(r.metrics.f1)}</option>`).join('');
-  $('run').onchange = () => load($('run').value);
-  $('unrated').onchange = () => { index = 0; render(); };
-  if (runs.length) load(runs[0].id); else render();
-}
-
-$('copy').onclick = async () => {
-  const text = await (await api(`/runs/${runId}/report`)).text();
-  await navigator.clipboard.writeText(text);
-  $('copy').textContent = 'Copied!';
-  setTimeout(() => $('copy').textContent = 'Copy report for Opus', 1500);
+  loadAuth();
 };
 
-document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'TEXTAREA' || e.metaKey || e.ctrlKey || !runId) return;
-  const key = { y: 'right', n: 'wrong', s: 'skip' }[e.key];
-  if (key) rate(key, true);
-  else if (e.key === 'ArrowRight') { index++; render(); }
-  else if (e.key === 'ArrowLeft') { index--; render(); }
-});
+/* personalization */
 
-init();
+async function loadContext() {
+  const status = await api('/auth/status');
+  const context = await api('/context?account=' + encodeURIComponent(status.account));
+  const n = context.rules.length;
+  $('ctxInfo').textContent = n || context.about
+    ? `Saved for "${status.account}": ${n} rule${n === 1 ? '' : 's'}${context.about ? ' and a note about you' : ''}.`
+    : `Nothing saved yet for "${status.account}".`;
+}
+
+/* training */
+
+async function loadTraining() {
+  const [runs, skill] = await Promise.all([api('/runs'), api('/skill')]);
+  const trained = runs.filter((r) => r.tag !== 'recent');
+  const latest = trained.find((r) => r.metrics.rated > 0) ?? trained[0];
+
+  if (!latest) {
+    $('training').innerHTML = 'No training rounds yet. Pull a batch and classify it (<code>npm run pull</code>, <code>npm run classify</code>), then rate it in the trainer.';
+  } else {
+    const m = latest.metrics;
+    const stat = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
+    $('training').innerHTML = `<p class="muted small">Latest round: ${esc(latest.model.split(':')[0])} on batch ${esc(latest.batch)}, ${m.rated}/${m.total} rated</p>
+      <div class="metrics">${stat(pct(m.f1), 'F1')}${stat(pct(m.precision), 'precision')}${stat(pct(m.recall), 'recall')}${m.auc === null ? '' : stat(pct(m.auc), 'AUC')}</div>`;
+  }
+  $('skill').textContent = skill.chat.trim();
+}
+
+/* recent mail */
+
+function showSummary(summary) {
+  if (!summary) { $('summary').innerHTML = ''; return; }
+  const when = new Date(summary.run.createdAt).toLocaleString();
+  $('summary').innerHTML = `
+    <div class="big">${summary.todayCount}</div>
+    <p style="margin:2px 0 0"><b>new important ${summary.todayCount === 1 ? 'email' : 'emails'} found today</b></p>
+    <p class="muted small">${summary.flagged} flagged of ${summary.classified} emails from the last ${summary.days} days · ${esc(summary.run.model.split(':')[0])} · ${esc(when)}</p>
+    <ul class="mails">${summary.today.map((m) => `<li>${esc(m.subject)}<div class="from">${esc(m.from)}</div></li>`).join('')}</ul>
+    <p class="muted small" style="margin-top:12px">Basic summary for now: counts today's flagged emails only.</p>`;
+}
+
+$('classify').onclick = async () => {
+  const button = $('classify');
+  button.disabled = true;
+  button.dataset.busy = '1';
+  $('jobMsg').className = 'muted';
+  try {
+    let job = await api('/classify-recent', { method: 'POST' });
+    while (job.state === 'pulling' || job.state === 'classifying') {
+      $('jobMsg').textContent = job.progress;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      job = await api('/jobs/' + job.id);
+    }
+    if (job.state === 'error') throw new Error(job.error);
+    $('jobMsg').textContent = job.progress;
+    showSummary(await api('/recent'));
+  } catch (error) {
+    $('jobMsg').className = 'err';
+    $('jobMsg').textContent = error.message;
+  }
+  button.dataset.busy = '0';
+  button.disabled = !signedIn;
+};
+
+/* start */
+
+(async () => {
+  try {
+    await Promise.all([loadAuth(), loadContext(), loadTraining(), api('/recent').then(showSummary)]);
+  } catch {
+    $('page').innerHTML = '<div class="offline"><h1>Email Organizer</h1><p>The local server isn\'t responding.</p><p>Start it with <code>npm run ui</code> and reload this page.</p></div>';
+  }
+})();
 </script>
 </body>
 </html>

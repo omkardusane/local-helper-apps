@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personalize</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--text:#1d2330;--muted:#6b7280;--border:#e3e6eb;
+  --accent:#2f6fec;--accent-soft:#e8f0fe;--ok:#1f9d55;--bad:#c53030;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#14171c;--panel:#1c2027;--text:#e6e9ef;--muted:#9aa3b2;--border:#2c323c;
+    --accent:#6b9bff;--accent-soft:#22304a;--ok:#4ade80;--bad:#f87171;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px 90px}
+a{color:var(--accent)}
+.back{display:inline-block;margin:20px 0 0;color:var(--muted);text-decoration:none;font-size:13px}
+h1{font-size:24px;margin:10px 0 6px}
+.lead{margin:0 0 20px;color:var(--muted)}
+section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 4px}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+textarea,input,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:7px 10px;width:100%}
+textarea{min-height:84px;resize:vertical;margin-top:8px}
+button{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.group{padding:12px 0;border-top:1px solid var(--border)}
+.group:first-of-type{border-top:0}
+.head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;justify-content:space-between}
+.head b{font-size:14px}
+.addr{color:var(--muted);font-size:12px;word-break:break-all}
+ul.subj{margin:4px 0 8px;padding-left:18px;color:var(--muted);font-size:12.5px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{background:transparent;color:var(--text);border:1px solid var(--border);padding:5px 12px}
+.seg button.on.imp{background:var(--ok);border-color:var(--ok);color:#fff}
+.seg button.on.not{background:var(--bad);border-color:var(--bad);color:#fff}
+.seg button.on.unsure{background:var(--muted);border-color:var(--muted);color:#fff}
+.group input.note{margin-top:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.row select{width:auto}.row input{flex:1;min-width:160px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--border);padding:10px 20px}
+.bar .in{max-width:760px;margin:0 auto;display:flex;gap:12px;align-items:center;justify-content:space-between}
+.err{color:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Email organizer</a>
+  <h1>Tell it about you</h1>
+  <p class="lead">The classifier's rules are the same for everyone. This page is the part that is yours. Answer for the senders below, in your own words, and it will use that in every future run.</p>
+
+  <section>
+    <h2>Which mailbox sample should we look at?</h2>
+    <p class="muted small">Your first pulled batch works best, because it shows who writes to you most.</p>
+    <select id="batch" aria-label="Batch"></select>
+  </section>
+
+  <section>
+    <h2>About you</h2>
+    <p class="muted small">A sentence or two about what matters in your life right now. For example: "I'm moving house this winter, so landlord and utility emails matter" or "I run a small shop and need to see supplier invoices."</p>
+    <textarea id="about" maxlength="2000" placeholder="What should it know about you?"></textarea>
+  </section>
+
+  <section>
+    <h2>Senders that write to you often</h2>
+    <p class="muted small" id="groupsNote">loading…</p>
+    <div id="groups"></div>
+  </section>
+
+  <section>
+    <h2>Your other rules</h2>
+    <p class="muted small">Anything not in the list above, such as a person who must always get through (a landlord, a school), or a topic you never want to see.</p>
+    <div id="extra"></div>
+    <div class="row">
+      <select id="kind"><option value="sender">Sender</option><option value="topic">Topic</option></select>
+      <input id="value" placeholder="landlord@example.de, or: job alerts for sales roles">
+      <select id="label"><option value="important">Important</option><option value="not important">Not important</option></select>
+      <button class="ghost" id="add">Add</button>
+    </div>
+  </section>
+</div>
+
+<div class="bar"><div class="in"><span class="muted small" id="status">Nothing changed yet.</span><button id="save">Save</button></div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' })[c]);
+
+let account = 'default';
+let choices = new Map();   // sender address -> { label, note, name }
+let extra = [];            // rules not tied to a listed group
+
+async function api(path, options) {
+  const response = await fetch('/api' + path, options);
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error ?? 'request failed');
+  return body;
+}
+
+const dirty = () => { $('status').textContent = 'Unsaved changes.'; };
+
+function render(groups) {
+  $('groups').innerHTML = groups.map((g, i) => {
+    const c = choices.get(g.address) ?? {};
+    const on = (label) => c.label === label ? ' on' : '';
+    return `<div class="group" data-i="${i}">
+      <div class="head"><b>${esc(g.name || g.address)}</b><span class="muted small">${g.count} emails</span></div>
+      <div class="addr">${esc(g.address)}</div>
+      <ul class="subj">${g.subjects.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
+      <div class="seg">
+        <button class="imp${on('important')}" data-l="important">Important</button>
+        <button class="not${on('not important')}" data-l="not important">Not important</button>
+        <button class="unsure${c.label ? '' : ' on'}" data-l="">Not sure</button>
+      </div>
+      <input class="note" placeholder="Why? (optional)" value="${esc(c.note ?? '')}">
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.group').forEach((el) => {
+    const g = groups[Number(el.dataset.i)];
+    el.querySelectorAll('[data-l]').forEach((b) => b.onclick = () => {
+      const label = b.dataset.l;
+      const note = el.querySelector('.note').value;
+      if (label) choices.set(g.address, { label, note, name: g.name }); else choices.delete(g.address);
+      dirty(); render(groups);
+    });
+    el.querySelector('.note').oninput = (e) => {
+      const c = choices.get(g.address);
+      if (c) { c.note = e.target.value; dirty(); }
+    };
+  });
+}
+
+function renderExtra() {
+  $('extra').innerHTML = extra.length ? extra.map((r, i) =>
+    `<div class="row" style="align-items:center"><span class="small"><b>${esc(r.kind)}</b>: ${esc(r.value)} → ${esc(r.label)}</span><button class="ghost" data-rm="${i}">Remove</button></div>`).join('') : '<p class="muted small">None yet.</p>';
+  document.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => { extra.splice(Number(b.dataset.rm), 1); dirty(); renderExtra(); });
+}
+
+async function load(batch) {
+  const [data, context] = await Promise.all([api('/setup/groups?batch=' + encodeURIComponent(batch)), api('/context?account=' + encodeURIComponent(accountOf(batch)))]);
+  account = data.account;
+  $('about').value = context.about ?? '';
+
+  const listed = new Set(data.groups.map((g) => g.address));
+  choices = new Map();
+  extra = [];
+  for (const r of context.rules) {
+    if (r.kind === 'sender' && listed.has(r.value)) choices.set(r.value, { label: r.label, note: r.note ?? '', name: r.name });
+    else extra.push(r);
+  }
+
+  $('groupsNote').textContent = data.groups.length
+    ? `${data.groups.length} senders wrote to you at least twice in this batch of ${data.totalEmails} (${data.singles} emails came from one-off senders). Saving for account "${data.account}".`
+    : 'No sender wrote more than once in this batch.';
+  render(data.groups);
+  renderExtra();
+  $('status').textContent = 'Nothing changed yet.';
+}
+
+let batches = [];
+const accountOf = (id) => batches.find((b) => b.id === id)?.account ?? 'default';
+
+$('add').onclick = () => {
+  const value = $('value').value.trim();
+  if (!value) return;
+  extra.push({ kind: $('kind').value, value, label: $('label').value });
+  $('value').value = '';
+  dirty(); renderExtra();
+};
+$('about').oninput = dirty;
+
+$('save').onclick = async () => {
+  const rules = [...choices.entries()].map(([value, c]) => ({ kind: 'sender', value, name: c.name, label: c.label, note: c.note || undefined })).concat(extra);
+  try {
+    await api('/context?account=' + encodeURIComponent(account), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ about: $('about').value, rules }) });
+    $('status').textContent = `Saved ${rules.length} rule${rules.length === 1 ? '' : 's'} for "${account}". New runs will use them.`;
+  } catch (error) {
+    $('status').innerHTML = `<span class="err">${esc(error.message)}</span>`;
+  }
+};
+
+(async () => {
+  try {
+    batches = await api('/batches');
+    if (!batches.length) { $('groupsNote').textContent = 'No batches yet. Pull one first (npm run pull).'; return; }
+    $('batch').innerHTML = batches.map((b) => `<option value="${esc(b.id)}">${esc(b.id)} · ${b.emails} emails · ${esc(b.account)}</option>`).join('');
+    $('batch').onchange = () => load($('batch').value);
+    await load($('batch').value);
+  } catch (error) {
+    $('groupsNote').innerHTML = `<span class="err">${esc(error.message)}. Is the server running (npm run ui)?</span>`;
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,11 +1,11 @@
-// usage: npm run emails:ui
+// usage: npm run ui
 import { spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import express from "express";
 import { authorize, DEFAULT_ACCOUNT, getAccessToken } from "./google-auth.ts";
 import {
-  BATCHES, computeMetrics, type Email, type Rating, readJson, type Result, RUNS, type RunMeta, ROOT, safeId, skillPath, type Verdict, writeJson,
+  accountOfBatch, BATCHES, computeMetrics, type ContextRule, contextPath, type Email, loadContext, type Rating, readJson, type Result, RUNS, type RunMeta, ROOT, safeId, skillPath, type UserContext, type Verdict, writeJson,
 } from "./lib.ts";
 
 const PORT = Number(process.env.EMAILS_PORT ?? 3100);
@@ -14,8 +14,7 @@ const SAMPLE_RIGHT = 10;
 const ACCOUNT = process.env.GMAIL_ACCOUNT ?? DEFAULT_ACCOUNT;
 const RECENT_DAYS = 3;
 const RECENT_LIMIT = 200;
-const RECENT_MODEL = "laya:421m-typed-decisions-bf16";
-const REPO = join(ROOT, "..");
+const RECENT_MODEL = process.env.OLLAMA_MODEL ?? "gemma4:12b"; // the model being tuned; laya is on hold
 
 async function loadRun(id: string) {
   const dir = join(RUNS, safeId(id));
@@ -23,6 +22,33 @@ async function loadRun(id: string) {
   const results = await readJson<Result[]>(join(dir, "results.json"), []);
   const ratings = await readJson<Record<string, Rating>>(join(dir, "ratings.json"), {});
   return { dir, meta, results, ratings };
+}
+
+/**
+ * A rating says what an email is, so it counts for every run of the same batch. Runs inherit
+ * verdicts from their siblings (translated against this run's own call); the run's own rating wins.
+ * Inherited ratings are never written back to the run's ratings.json.
+ */
+async function loadShared(id: string) {
+  const run = await loadRun(id);
+  const ratings: Record<string, Rating> = { ...run.ratings };
+
+  const others = (await readdir(RUNS)).filter((name) => !name.startsWith(".") && name !== run.meta.id).sort().reverse();
+  for (const other of others) {
+    const sibling = await loadRun(other).catch(() => null);
+    if (!sibling || sibling.meta.batch !== run.meta.batch) continue;
+
+    const calls = new Map(sibling.results.map((r) => [r.emailId, r.important]));
+    for (const result of run.results) {
+      const theirs = sibling.ratings[result.emailId];
+      const call = calls.get(result.emailId);
+      if (ratings[result.emailId] || result.important === null || !theirs || theirs.verdict === "skip" || call == null) continue;
+
+      const truth = theirs.verdict === "right" ? call : !call;
+      ratings[result.emailId] = { verdict: truth === result.important ? "right" : "wrong", note: theirs.note, inherited: true };
+    }
+  }
+  return { ...run, ratings };
 }
 
 async function loadEmail(batch: string, emailId: string): Promise<Email> {
@@ -33,7 +59,7 @@ const label = (important: boolean | null) => (important === null ? "error" : imp
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 
 async function buildReport(id: string): Promise<string> {
-  const { dir, meta, results, ratings } = await loadRun(id);
+  const { dir, meta, results, ratings } = await loadShared(id);
   const skill = await readFile(join(dir, "skill.md"), "utf8");
   const m = computeMetrics(results, ratings);
 
@@ -91,7 +117,7 @@ app.get("/api/runs", async (_req, res) => {
   const ids = (await readdir(RUNS).catch(() => [])).filter((name) => !name.startsWith("."));
   const runs = await Promise.all(
     ids.sort().reverse().map(async (id) => {
-      const { meta, results, ratings } = await loadRun(id);
+      const { meta, results, ratings } = await loadShared(id);
       return { ...meta, metrics: computeMetrics(results, ratings) };
     }),
   );
@@ -99,7 +125,7 @@ app.get("/api/runs", async (_req, res) => {
 });
 
 app.get("/api/runs/:id", async (req, res) => {
-  const { meta, results, ratings } = await loadRun(req.params.id);
+  const { meta, results, ratings } = await loadShared(req.params.id);
   const items = await Promise.all(
     results.map(async (result) => ({ result, email: await loadEmail(meta.batch, result.emailId), rating: ratings[result.emailId] ?? null })),
   );
@@ -113,14 +139,96 @@ app.put("/api/runs/:id/ratings/:emailId", async (req, res) => {
     return;
   }
 
-  const { dir, results, ratings } = await loadRun(req.params.id);
+  const { dir, ratings } = await loadRun(req.params.id); // own ratings only: inherited ones are never persisted
   ratings[safeId(req.params.emailId)] = { verdict, note: typeof note === "string" ? note : "" };
   await writeJson(join(dir, "ratings.json"), ratings);
-  res.json(computeMetrics(results, ratings));
+
+  const shared = await loadShared(req.params.id);
+  res.json(computeMetrics(shared.results, shared.ratings));
 });
 
 app.get("/api/runs/:id/report", async (req, res) => {
   res.type("text/markdown").send(await buildReport(req.params.id));
+});
+
+/* ------------------------------------------------------------------ setup api */
+
+const LABELS = ["important", "not important"];
+const MAX_TEXT = 2000;
+
+const addressOf = (from: string) => (from.match(/<([^>]+)>/)?.[1] ?? from).trim().toLowerCase();
+const nameOf = (from: string) => from.replace(/<[^>]*>/, "").replace(/["']/g, "").replace(/\s+via\s+\S+.*$/i, "").trim();
+
+app.get("/api/batches", async (_req, res) => {
+  const names = (await readdir(BATCHES).catch(() => [])).filter((name) => !name.startsWith("."));
+  const batches = await Promise.all(
+    names.map(async (name) => {
+      const emails = await readdir(join(BATCHES, name, "emails")).catch(() => null);
+      return emails ? { id: name, account: accountOfBatch(name), emails: emails.length } : null;
+    }),
+  );
+  res.json(batches.filter(Boolean).sort((a, b) => a!.id.localeCompare(b!.id)));
+});
+
+/** Senders in a batch with several emails: the questions worth asking a new user. One answer covers every future mail. */
+app.get("/api/setup/groups", async (req, res) => {
+  const batch = safeId(String(req.query.batch ?? ""));
+  const files = (await readdir(join(BATCHES, batch, "emails"))).filter((name) => name.endsWith(".json"));
+  const emails = await Promise.all(files.map((file) => readJson<Email>(join(BATCHES, batch, "emails", file))));
+
+  const groups = new Map<string, { address: string; names: Map<string, number>; subjects: string[]; count: number }>();
+  for (const email of emails) {
+    const address = addressOf(email.from);
+    const group = groups.get(address) ?? { address, names: new Map<string, number>(), subjects: [] as string[], count: 0 };
+    group.count++;
+    const name = nameOf(email.from);
+    if (name) group.names.set(name, (group.names.get(name) ?? 0) + 1);
+    if (group.subjects.length < 3) group.subjects.push(email.subject);
+    groups.set(address, group);
+  }
+
+  const repeated = [...groups.values()].filter((group) => group.count >= 2).sort((a, b) => b.count - a.count).slice(0, 30);
+  const context = await loadContext(accountOfBatch(batch));
+
+  res.json({
+    batch,
+    account: accountOfBatch(batch),
+    totalEmails: emails.length,
+    singles: emails.length - repeated.reduce((sum, group) => sum + group.count, 0),
+    groups: repeated.map((group) => ({
+      address: group.address,
+      name: [...group.names.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "",
+      count: group.count,
+      subjects: group.subjects,
+      rule: context.rules.find((rule) => rule.kind === "sender" && rule.value === group.address) ?? null,
+    })),
+  });
+});
+
+app.get("/api/context", async (req, res) => {
+  res.json(await loadContext(safeId(String(req.query.account ?? ACCOUNT))));
+});
+
+app.put("/api/context", async (req, res) => {
+  const account = safeId(String(req.query.account ?? ACCOUNT));
+  const body = req.body as Partial<UserContext>;
+  const rules = Array.isArray(body.rules) ? body.rules : [];
+
+  const clean: UserContext = {
+    about: typeof body.about === "string" ? body.about.slice(0, MAX_TEXT) : "",
+    rules: rules
+      .filter((rule): rule is ContextRule => rule && LABELS.includes(rule.label) && ["sender", "topic"].includes(rule.kind) && typeof rule.value === "string" && rule.value.trim() !== "")
+      .map((rule) => ({
+        kind: rule.kind,
+        value: rule.value.trim().slice(0, 200),
+        ...(rule.name ? { name: String(rule.name).slice(0, 100) } : {}),
+        label: rule.label,
+        ...(rule.note ? { note: String(rule.note).slice(0, 300) } : {}),
+      })),
+    updatedAt: new Date().toISOString(),
+  };
+  await writeJson(contextPath(account), clean);
+  res.json(clean);
 });
 
 /* --------------------------------------------------------------- landing page api */
@@ -164,7 +272,7 @@ const jobs = new Map<string, Job>();
 /** Runs one of the cli scripts with this process's env (so .env settings apply) and resolves with its output. */
 function runScript(script: string, args: string[], env: NodeJS.ProcessEnv, onOutput: (text: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--env-file=.env", join("organize-emails", script), ...args], { cwd: REPO, env: { ...process.env, ...env } });
+    const child = spawn(process.execPath, ["--env-file-if-exists=.env", join(ROOT, script), ...args], { cwd: ROOT, env: { ...process.env, ...env } });
     let output = "";
     let errors = "";
     child.stdout.on("data", (chunk) => { output += chunk; onOutput(String(chunk)); });

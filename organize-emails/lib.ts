@@ -1,10 +1,22 @@
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = dirname(fileURLToPath(import.meta.url));
-export const BATCHES = join(ROOT, "batches");
-export const RUNS = join(ROOT, "runs");
+
+/**
+ * Where the user's data lives: pulled mail, runs and ratings, saved contexts, sign-in tokens.
+ * The packaged app sets EMAIL_ORGANIZER_DATA to the user's own app-data folder; in development it is
+ * unset and everything stays next to the code, as before. Code assets (skills, web pages) always ship with the app.
+ */
+const DATA = process.env.EMAIL_ORGANIZER_DATA;
+export const BATCHES = join(DATA ?? ROOT, "batches");
+export const RUNS = join(DATA ?? ROOT, "runs");
+export const TOKENS = DATA ? join(DATA, "secrets") : join(ROOT, "secrets");
+/** The Google OAuth client file ships with the app; it is not user data. */
+export const CLIENT_DIR = process.env.EMAIL_ORGANIZER_CLIENT_DIR ?? TOKENS;
 export const isLaya = (model: string) => model.startsWith("laya");
 
 /** Laya is steered by question text + threshold, chat models by a system prompt. */
@@ -23,10 +35,49 @@ export type Result = {
   important: boolean | null; // null = the model failed on this email
   reason: string;
   score?: number; // laya only: 0..1, important = score >= the skill's threshold
+  ms?: number; // how long the model took on this email
 };
 
+/** What the user told the system about themselves. Kept apart from the skill, which is the same for everyone. */
+export type ContextRule = { kind: "sender" | "topic"; value: string; name?: string; label: "important" | "not important"; note?: string };
+export type UserContext = { about: string; rules: ContextRule[]; updatedAt?: string };
+
+export const CONTEXTS = join(DATA ?? ROOT, "contexts");
+export const DEFAULT_ACCOUNT_NAME = "default";
+
+/** Batches pulled for a named account are prefixed `<account>_`; older batches belong to the default account. */
+export function accountOfBatch(batch: string): string {
+  const prefix = batch.match(/^([a-z][\w-]*)_\d{4}-/i)?.[1];
+  return prefix ?? DEFAULT_ACCOUNT_NAME;
+}
+
+export const contextPath = (account: string) => join(CONTEXTS, `${safeId(account)}.json`);
+
+export async function loadContext(account: string): Promise<UserContext> {
+  return readJson<UserContext>(contextPath(account), { about: "", rules: [] });
+}
+
+/** The "about this user" text appended to the skill; empty when the user hasn't said anything yet. */
+export function renderContext(context: UserContext): string {
+  const lines: string[] = [];
+  if (context.about.trim()) lines.push(`About this user:\n${context.about.trim()}`);
+
+  if (context.rules.length > 0) {
+    lines.push(
+      [
+        "The user's own preferences. They override the general rules above:",
+        ...context.rules.map((rule) => {
+          const who = rule.kind === "sender" ? `Emails from ${rule.name ? `${rule.name} (${rule.value})` : rule.value}` : rule.value;
+          return `- ${who}: ${rule.label}${rule.note ? ` (${rule.note})` : ""}`;
+        }),
+      ].join("\n"),
+    );
+  }
+  return lines.join("\n\n");
+}
+
 export type Verdict = "right" | "wrong" | "skip";
-export type Rating = { verdict: Verdict; note: string };
+export type Rating = { verdict: Verdict; note: string; inherited?: boolean }; // inherited: taken from another run of the same batch
 
 export type RunMeta = { id: string; batch: string; model: string; createdAt: string; tag?: string }; // tag "recent" = started from the landing page, not a training round
 
@@ -43,6 +94,13 @@ export type Metrics = {
   fn: number;
   tn: number;
 };
+
+/** Opens a page in the user's default browser, on macOS, Windows or Linux. */
+export function openUrl(url: string): void {
+  const [command, args] =
+    platform() === "darwin" ? ["open", [url]] : platform() === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  execFile(command as string, args as string[], () => {}); // if it fails the url is printed anyway
+}
 
 export function requireEnv(name: string): string {
   const value = process.env[name];

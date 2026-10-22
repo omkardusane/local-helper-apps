@@ -1,0 +1,28 @@
+{
+  "name": "email-organizer",
+  "version": "0.1.0",
+  "description": "A local classifier that flags the emails that deserve your attention. The AI model runs on your own computer.",
+  "license": "UNLICENSED",
+  "author": "omkardusane",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node start.ts",
+    "ui": "node --env-file-if-exists=.env server.ts",
+    "pull": "node --env-file-if-exists=.env pull.ts",
+    "classify": "node --env-file-if-exists=.env classify.ts",
+    "auth": "node --env-file-if-exists=.env auth.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "ollama": "^0.6.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

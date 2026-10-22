@@ -2,6 +2,5 @@ node_modules/
 dist/
 .env
 *.env
-organize-emails/batches/
-organize-emails/runs/
 secrets/
+.DS_Store

@@ -1,8 +1,8 @@
-// usage: npm run emails:classify -- <batch-id> [model]   (model defaults to OLLAMA_MODEL)
-import { copyFile, readdir, readFile } from "node:fs/promises";
+// usage: npm run classify -- <batch-id> [model]   (model defaults to OLLAMA_MODEL)
+import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import ollama from "ollama";
-import { BATCHES, type Email, isLaya, readJson, type Result, RUNS, type RunMeta, safeId, skillPath, writeJson } from "./lib.ts";
+import { accountOfBatch, BATCHES, type Email, isLaya, loadContext, readJson, renderContext, type Result, RUNS, type RunMeta, safeId, skillPath, writeJson } from "./lib.ts";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const CHAT_BODY_CHARS = 2000;
@@ -11,7 +11,7 @@ const LAYA_BODY_CHARS = 1200; // laya's context is 1024 tokens
 const batch = process.argv[2];
 const model = process.argv[3] ?? process.env.OLLAMA_MODEL ?? "gemma4:12b";
 if (!batch) {
-  console.error("usage: npm run emails:classify -- <batch-id> [model]");
+  console.error("usage: npm run classify -- <batch-id> [model]");
   process.exit(1);
 }
 
@@ -24,15 +24,39 @@ const meta: RunMeta = { id, batch, model, createdAt: new Date().toISOString(), .
 await writeJson(join(runDir, "meta.json"), meta);
 await copyFile(skillPath(model), join(runDir, "skill.md"));
 
+// The skill is the same for everyone; what the user told us about themselves is appended at run time.
+// Laya is steered by its question text only, so it ignores the context.
+const context = await loadContext(accountOfBatch(batch));
+const contextText = isLaya(model) ? "" : renderContext(context);
+const system = [skill.trim(), contextText].filter(Boolean).join("\n\n");
+if (contextText) {
+  await writeJson(join(runDir, "context.json"), context);
+  await writeFile(join(runDir, "prompt.md"), system + "\n");
+}
+
 const describe = (email: Email, chars: number) =>
   `From: ${email.from}\nSubject: ${email.subject}\nDate: ${email.date}\n\n${email.text.slice(0, chars)}`;
 
 /* ------------------------------------------------------------------ chat models */
 
+const RETRIES = 3;
+
+/** ollama can drop a connection while loading or swapping a model; a short wait and retry fixes most of it. */
+async function chatRequest(body: string): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", body });
+      if (response.status < 500 || attempt === RETRIES) return response;
+    } catch (error) {
+      if (attempt === RETRIES) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
+  }
+}
+
 async function classifyChat(email: Email): Promise<Result> {
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    body: JSON.stringify({
+  const response = await chatRequest(
+    JSON.stringify({
       model,
       stream: false,
       options: { temperature: 0 },
@@ -42,11 +66,11 @@ async function classifyChat(email: Email): Promise<Result> {
         required: ["important", "reason"],
       },
       messages: [
-        { role: "system", content: skill },
+        { role: "system", content: system },
         { role: "user", content: describe(email, CHAT_BODY_CHARS) },
       ],
     }),
-  });
+  );
   if (!response.ok) throw new Error(`ollama ${response.status}: ${await response.text()}`);
 
   const body = (await response.json()) as { message: { content: string } };
@@ -101,19 +125,21 @@ async function classifyLaya(email: Email, chars = LAYA_BODY_CHARS): Promise<Resu
 const results: Result[] = [];
 for (const [index, file] of files.entries()) {
   const email = await readJson<Email>(join(BATCHES, batch, "emails", file));
+  const started = performance.now();
   try {
-    results.push(await (laya ? classifyLaya(email) : classifyChat(email)));
+    results.push({ ...(await (laya ? classifyLaya(email) : classifyChat(email))), ms: Math.round(performance.now() - started) });
   } catch (error) {
-    results.push({ emailId: email.id, important: null, reason: `ERROR: ${(error as Error).message}` });
+    results.push({ emailId: email.id, important: null, reason: `ERROR: ${(error as Error).message}`, ms: Math.round(performance.now() - started) });
   }
   process.stdout.write(`\r${index + 1}/${files.length}`);
 }
 
 await writeJson(join(runDir, "results.json"), results);
 const failed = results.filter((r) => r.important === null).length;
-console.log(`\nrun ${id} (${model}) done, ${failed} errors`);
+const timed = results.filter((r) => r.important !== null).map((r) => r.ms ?? 0);
+console.log(`\nrun ${id} (${model}) done, ${failed} errors, ${timed.length ? (timed.reduce((a, b) => a + b, 0) / timed.length / 1000).toFixed(1) : 0}s per email`);
 if (failed > results.length * 0.05) {
   console.warn(`WARNING: ${failed}/${results.length} emails failed (${results.find((r) => r.important === null)?.reason}).`);
   console.warn("Failed emails are not rated or scored. Check that ollama is up, then rerun this batch.");
 }
-console.log("rate it: npm run emails:ui");
+console.log("rate it: npm run ui");

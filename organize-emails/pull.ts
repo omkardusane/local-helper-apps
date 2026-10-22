@@ -1,4 +1,4 @@
-// usage: npm run emails:pull -- <since YYYY-MM-DD> [limit=100] [until YYYY-MM-DD]   (GMAIL_ACCOUNT=<name> picks the inbox; run `npm run emails:auth` once per inbox first)
+// usage: npm run pull -- <since YYYY-MM-DD> [limit=100] [until YYYY-MM-DD]   (GMAIL_ACCOUNT=<name> picks the inbox; run `npm run auth` once per inbox first)
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { BATCHES, type Email, writeJson } from "./lib.ts";
@@ -15,7 +15,7 @@ const until = process.argv[4]; // optional end date (exclusive), for batches tha
 const account = process.env.GMAIL_ACCOUNT ?? DEFAULT_ACCOUNT; // which signed-in inbox to read
 
 if (!since || Number.isNaN(Date.parse(since)) || (until && Number.isNaN(Date.parse(until)))) {
-  console.error("usage: npm run emails:pull -- <since YYYY-MM-DD> [limit=100] [until YYYY-MM-DD]");
+  console.error("usage: npm run pull -- <since YYYY-MM-DD> [limit=100] [until YYYY-MM-DD]");
   process.exit(1);
 }
 
