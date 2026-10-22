@@ -272,7 +272,12 @@ const jobs = new Map<string, Job>();
 /** Runs one of the cli scripts with this process's env (so .env settings apply) and resolves with its output. */
 function runScript(script: string, args: string[], env: NodeJS.ProcessEnv, onOutput: (text: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--env-file-if-exists=.env", join(ROOT, script), ...args], { cwd: ROOT, env: { ...process.env, ...env } });
+    const child = spawn(process.execPath, ["--env-file-if-exists=.env", join(ROOT, script), ...args], {
+      cwd: ROOT,
+      // the account is passed explicitly: a variable already in the environment beats the child's .env file,
+      // so the child can never end up reading a different inbox's sign-in than the page shows
+      env: { ...process.env, GMAIL_ACCOUNT: ACCOUNT, ...env },
+    });
     let output = "";
     let errors = "";
     child.stdout.on("data", (chunk) => { output += chunk; onOutput(String(chunk)); });
@@ -280,9 +285,10 @@ function runScript(script: string, args: string[], env: NodeJS.ProcessEnv, onOut
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) return resolve(output);
-      // a crash prints a stack trace ending in the node version; the useful line is the one naming the error
+      // a crash prints the source line, then "Error: <message>", then a stack trace ending in the node version
       const lines = errors.split("\n").map((line) => line.trim()).filter(Boolean);
-      reject(new Error(lines.find((line) => /error/i.test(line) && !line.startsWith("at ")) ?? lines.at(-1) ?? `${script} exited with ${code}`));
+      const named = lines.find((line) => /^\w*Error:/.test(line));
+      reject(new Error(named?.replace(/^\w*Error:\s*/, "") ?? lines.at(-1) ?? `${script} exited with ${code}`));
     });
   });
 }
