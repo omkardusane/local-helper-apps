@@ -1,7 +1,8 @@
 // usage: npm run pull -- <since YYYY-MM-DD> [limit=100] [until YYYY-MM-DD]   (GMAIL_ACCOUNT=<name> picks the inbox; run `npm run auth` once per inbox first)
+// SKIP_KNOWN=1 leaves out emails this account has already pulled; BATCH_NAME=<id> names the batch (both used by the landing page)
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { BATCHES, type Email, writeJson } from "./lib.ts";
+import { BATCHES, type Email, knownEmailIds, writeJson } from "./lib.ts";
 import { DEFAULT_ACCOUNT, getAccessToken } from "./google-auth.ts";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -20,7 +21,7 @@ if (!since || Number.isNaN(Date.parse(since)) || (until && Number.isNaN(Date.par
 }
 
 const range = until ? `${since}_to_${until}_${limit}` : `${since}_${limit}`;
-const batch = account === DEFAULT_ACCOUNT ? range : `${account}_${range}`;
+const batch = process.env.BATCH_NAME ?? (account === DEFAULT_ACCOUNT ? range : `${account}_${range}`);
 const dir = join(BATCHES, batch);
 if (existsSync(dir) && !process.env.PULL_REFRESH) {
   console.error(`batch ${batch} already exists; batches are frozen so rounds stay comparable (PULL_REFRESH=1 re-pulls into it)`);
@@ -67,11 +68,37 @@ function bodyText(part: Part): string {
 }
 
 // gmail's `after:` takes epoch seconds, which avoids timezone ambiguity
-const query = new URLSearchParams({ q: `in:inbox after:${Math.floor(Date.parse(since) / 1000)}${until ? ` before:${Math.floor(Date.parse(until) / 1000)}` : ""}`, maxResults: String(Math.min(limit, 500)) });
-const { messages = [] } = await gmail<{ messages?: { id: string }[] }>(`/messages?${query}`);
+const q = `in:inbox after:${Math.floor(Date.parse(since) / 1000)}${until ? ` before:${Math.floor(Date.parse(until) / 1000)}` : ""}`;
+const known = process.env.SKIP_KNOWN ? await knownEmailIds(account) : new Set<string>();
+
+/** Newest first. Pages through the results until `limit` emails that are new to us are found. */
+async function newIds(): Promise<{ ids: string[]; skipped: number; more: boolean }> {
+  const ids: string[] = [];
+  let skipped = 0;
+  let more = false; // more new emails exist than `limit`
+  let pageToken: string | undefined;
+  for (let examined = 0; ids.length < limit && examined < 3000; ) {
+    const page = new URLSearchParams({ q, maxResults: "500", ...(pageToken && { pageToken }) });
+    const { messages = [], nextPageToken } = await gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(`/messages?${page}`);
+    for (const { id } of messages) {
+      examined++;
+      if (known.has(id)) skipped++;
+      else if (ids.length < limit) ids.push(id);
+      else more = true;
+    }
+    if (!nextPageToken) break;
+    if (ids.length >= limit) more = true; // the limit was reached exactly at the end of a page
+    pageToken = nextPageToken;
+  }
+  return { ids, skipped, more };
+}
+
+const { ids, skipped, more } = await newIds();
+if (skipped) console.log(`skipped ${skipped} emails already pulled`);
+if (more) console.log(`more emails are waiting (limit ${limit})`);
 
 let saved = 0;
-for (const { id } of messages.slice(0, limit)) {
+for (const id of ids) {
   const message = await gmail<Message>(`/messages/${id}?format=full`);
   const header = (name: string) => message.payload.headers.find((h) => h.name.toLowerCase() === name)?.value ?? "";
 
@@ -83,7 +110,7 @@ for (const { id } of messages.slice(0, limit)) {
     text: bodyText(message.payload).slice(0, 20_000),
   };
   await writeJson(join(dir, "emails", `${id}.json`), email);
-  process.stdout.write(`\r${++saved}/${Math.min(messages.length, limit)}`);
+  process.stdout.write(`\r${++saved}/${ids.length}`);
 }
 
 console.log(`\nsaved ${saved} emails to batches/${batch}`);

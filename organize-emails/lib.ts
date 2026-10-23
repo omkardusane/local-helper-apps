@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,7 @@ export type Result = {
   reason: string;
   score?: number; // laya only: 0..1, important = score >= the skill's threshold
   ms?: number; // how long the model took on this email
+  by?: "rule"; // decided by a code-level check (a known sender), not by the model
 };
 
 /** What the user told the system about themselves. Kept apart from the skill, which is the same for everyone. */
@@ -79,7 +80,15 @@ export function renderContext(context: UserContext): string {
 export type Verdict = "right" | "wrong" | "skip";
 export type Rating = { verdict: Verdict; note: string; inherited?: boolean }; // inherited: taken from another run of the same batch
 
-export type RunMeta = { id: string; batch: string; model: string; createdAt: string; tag?: string }; // tag "recent" = started from the landing page, not a training round
+export type RunMeta = {
+  id: string;
+  batch: string;
+  model: string;
+  createdAt: string;
+  tag?: string; // "recent" = started from the landing page, not a training round
+  total?: number; // emails in the batch, so progress can be shown while the run is still going
+  quickScan?: boolean; // known senders were decided by code before the model ran
+};
 
 export type Metrics = {
   rated: number;
@@ -122,9 +131,34 @@ export async function readJson<T>(path: string, fallback?: T): Promise<T> {
   }
 }
 
+/** Writes via a temp file and a rename, so a reader (the web page watching a run) never sees half a file. */
 export async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2));
+  const temp = `${path}.${process.pid}.tmp`;
+  await writeFile(temp, JSON.stringify(value, null, 2));
+  await rename(temp, path);
+}
+
+/** "Name <a@b.c>" -> "a@b.c", lower case. */
+export const addressOf = (from: string) => (from.match(/<([^>]+)>/)?.[1] ?? from).trim().toLowerCase();
+
+/** Gmail ids of every email this account has already pulled, in any batch, so a later pull can skip them. */
+export async function knownEmailIds(account: string): Promise<Set<string>> {
+  const known = new Set<string>();
+  for (const batch of await readdir(BATCHES).catch(() => [])) {
+    if (batch.startsWith(".") || accountOfBatch(batch) !== account) continue;
+    for (const file of await readdir(join(BATCHES, batch, "emails")).catch(() => [])) {
+      if (file.endsWith(".json")) known.add(file.slice(0, -".json".length));
+    }
+  }
+  return known;
+}
+
+/** When each account was last checked from the landing page, so the next check starts from there. */
+const PULLS = join(DATA ?? ROOT, "pulls.json");
+export const lastPulls = () => readJson<Record<string, { at: string }>>(PULLS, {});
+export async function recordPull(account: string): Promise<void> {
+  await writeJson(PULLS, { ...(await lastPulls()), [account]: { at: new Date().toISOString() } });
 }
 
 /** "right" keeps the model's call, "wrong" flips it; skips and model failures don't count. */
