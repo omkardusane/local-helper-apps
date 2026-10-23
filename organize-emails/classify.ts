@@ -1,7 +1,10 @@
 // usage: npm run classify -- <batch-id> [model]   (model defaults to OLLAMA_MODEL)
+// QUICK_SCAN=1 lets code decide emails from known not-important senders before the model runs (the landing page does this;
+// training runs leave it off so the model is scored on every email); RUN_TAG=recent marks a run started from the landing page.
 import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import ollama from "ollama";
+import { knownSenders, quickScan } from "./scan.ts";
 import { accountOfBatch, BATCHES, type Email, isLaya, loadContext, readJson, renderContext, type Result, RUNS, type RunMeta, safeId, skillPath, writeJson } from "./lib.ts";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
@@ -20,8 +23,17 @@ const skill = await readFile(skillPath(model), "utf8");
 
 const id = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(RUNS, id);
-const meta: RunMeta = { id, batch, model, createdAt: new Date().toISOString(), ...(process.env.RUN_TAG && { tag: process.env.RUN_TAG }) };
+const meta: RunMeta = {
+  id,
+  batch,
+  model,
+  createdAt: new Date().toISOString(),
+  total: files.length,
+  ...(process.env.QUICK_SCAN && { quickScan: true }),
+  ...(process.env.RUN_TAG && { tag: process.env.RUN_TAG }),
+};
 await writeJson(join(runDir, "meta.json"), meta);
+console.log(`RUN ${id}`);
 await copyFile(skillPath(model), join(runDir, "skill.md"));
 
 // The skill is the same for everyone; what the user told us about themselves is appended at run time.
@@ -122,21 +134,35 @@ async function classifyLaya(email: Email, chars = LAYA_BODY_CHARS): Promise<Resu
 
 /* -------------------------------------------------------------------------- run */
 
+const emails = await Promise.all(files.map((file) => readJson<Email>(join(BATCHES, batch, "emails", file))));
+const known = process.env.QUICK_SCAN ? await knownSenders(accountOfBatch(batch)) : new Map();
+
+// quick scan: known senders are decided by code, instantly, and shown before the model starts
 const results: Result[] = [];
-for (const [index, file] of files.entries()) {
-  const email = await readJson<Email>(join(BATCHES, batch, "emails", file));
+const pending: Email[] = [];
+for (const email of emails) {
+  const decided = quickScan(email, known);
+  if (decided) results.push(decided);
+  else pending.push(email);
+}
+if (known.size) console.log(`QUICKSCAN ${results.length}/${emails.length} decided by code (${known.size} known senders)`);
+await writeJson(join(runDir, "results.json"), results);
+
+// results are rewritten after every email so the page can show progress while the run is still going
+for (const email of pending) {
   const started = performance.now();
   try {
     results.push({ ...(await (laya ? classifyLaya(email) : classifyChat(email))), ms: Math.round(performance.now() - started) });
   } catch (error) {
     results.push({ emailId: email.id, important: null, reason: `ERROR: ${(error as Error).message}`, ms: Math.round(performance.now() - started) });
   }
-  process.stdout.write(`\r${index + 1}/${files.length}`);
+  await writeJson(join(runDir, "results.json"), results);
+  process.stdout.write(`\r${results.length}/${emails.length}`);
 }
 
 await writeJson(join(runDir, "results.json"), results);
 const failed = results.filter((r) => r.important === null).length;
-const timed = results.filter((r) => r.important !== null).map((r) => r.ms ?? 0);
+const timed = results.filter((r) => r.important !== null && r.by !== "rule").map((r) => r.ms ?? 0);
 console.log(`\nrun ${id} (${model}) done, ${failed} errors, ${timed.length ? (timed.reduce((a, b) => a + b, 0) / timed.length / 1000).toFixed(1) : 0}s per email`);
 if (failed > results.length * 0.05) {
   console.warn(`WARNING: ${failed}/${results.length} emails failed (${results.find((r) => r.important === null)?.reason}).`);
