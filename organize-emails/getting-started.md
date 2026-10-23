@@ -32,7 +32,7 @@ The first run downloads the model (several GB, once). When it says **Ready**, yo
 
 1. **Connect Gmail.** Read-only: the app can't send, delete or change anything. Google will warn that the app is unverified; choose *Advanced*, then continue.
 2. **Personalize.** It shows who writes to you most, and you say which senders matter. Add a line about what's going on in your life.
-3. **Check your recent mail.** Classifies the last 3 days. Expect about 15 seconds per email, so a first run of 100 emails takes a while.
+3. **Check your recent mail.** Pick a date range (it starts where your last check ended) and press *Check mail*. Emails you have already checked are never fetched again, so a second check the same day only looks at what's new. A quick code check decides mail from senders you've clearly shown you don't care about, and the model handles the rest at about 15 seconds per email. A live panel shows progress and lists the important emails as they're found, with a link to open each one in Gmail.
 4. **Train.** Rate the results as important or not. Your corrections make it better for you.
 
 ## Good to know

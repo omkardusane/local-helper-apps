@@ -42,6 +42,14 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);bor
 ul.mails{list-style:none;margin:12px 0 0;padding:0}
 ul.mails li{padding:8px 0;border-top:1px solid var(--border)}
 ul.mails .from{color:var(--muted);font-size:12.5px}
+ul.mails .why{color:var(--muted);font-size:12px;font-style:italic}
+ul.mails a{color:var(--text);text-decoration:none;font-weight:500}
+ul.mails a:hover{color:var(--accent);text-decoration:underline}
+.progress{height:8px;border-radius:4px;background:var(--border);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.row label{display:flex;align-items:center;gap:6px}
+.row input[type=date]{width:auto}
+.knownRow{padding:4px 0;font-size:12.5px;border-top:1px solid var(--border)}
 .err{color:var(--bad)}
 .offline{max-width:560px;margin:100px auto;text-align:center;color:var(--muted)}
 code{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font:12.5px ui-monospace,Menlo,monospace}
@@ -94,10 +102,19 @@ code{background:var(--bg);border:1px solid var(--border);border-radius:4px;paddi
   <section>
     <h2>4. Check your recent mail</h2>
     <div class="row">
-      <button id="classify" disabled>Classify the last 3 days</button>
-      <span class="muted" id="jobMsg"></span>
+      <label class="small muted">From <input type="date" id="from"></label>
+      <label class="small muted">To <input type="date" id="to" title="Leave empty to include everything up to now"></label>
+      <button id="classify" disabled>Check mail</button>
     </div>
+    <p class="muted small" id="rangeNote"></p>
+    <p class="muted" id="jobMsg"></p>
+    <div id="live"></div>
     <div id="summary" style="margin-top:16px"></div>
+    <details id="knownBox" hidden>
+      <summary id="knownSummary"></summary>
+      <p class="muted small">Mail from these senders is decided by a quick code check and never sent to the model. You marked them not important yourself, or rated at least 3 of their emails and none was important.</p>
+      <div id="known"></div>
+    </details>
   </section>
 </div>
 
@@ -119,6 +136,7 @@ async function api(path, options) {
 async function loadAuth() {
   const status = await api('/auth/status');
   signedIn = status.signedIn;
+  gmailUser = status.email ?? null;
   $('authPill').className = 'pill ' + (status.signedIn ? 'ok' : 'bad');
   $('authPill').textContent = status.signedIn ? 'Signed in' + (status.email ? ' as ' + status.email : '') : 'Not signed in';
   $('signIn').textContent = status.signedIn ? 'Switch account' : 'Sign in with Gmail';
@@ -173,15 +191,49 @@ async function loadTraining() {
 
 /* recent mail */
 
+let gmailUser = null;
+const gmailLink = (id) => `https://mail.google.com/mail/u/${encodeURIComponent(gmailUser ?? '0')}/#all/${id}`;
+const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function mailList(items) {
+  return `<ul class="mails">${items.map((m) => `<li><a href="${gmailLink(m.id)}" target="_blank" rel="noopener">${esc(m.subject)}</a>
+    <div class="from">${esc(m.from)} · ${esc(when(m.date))}</div>${m.reason ? `<div class="why">${esc(m.reason)}</div>` : ''}</li>`).join('')}</ul>`;
+}
+
+function showLive(job) {
+  const l = job.live;
+  if (!l) { $('live').innerHTML = ''; return; }
+  const pct = l.total ? Math.round((l.done / l.total) * 100) : 0;
+  const eta = l.etaSeconds == null ? '' : ` · about ${l.etaSeconds >= 90 ? Math.round(l.etaSeconds / 60) + ' min' : l.etaSeconds + ' s'} left`;
+  $('live').innerHTML = `
+    <p class="small" style="margin:10px 0 6px"><b>${l.done} of ${l.total}</b> checked${eta}</p>
+    <div class="progress"><i style="width:${pct}%"></i></div>
+    <p class="muted small">${l.flagged} important so far · ${l.decidedByCode} skipped as known senders (decided by code, no model needed)</p>
+    ${l.important.length ? `<p class="small" style="margin:10px 0 0"><b>Important so far</b></p>${mailList(l.important)}` : ''}`;
+}
+
 function showSummary(summary) {
   if (!summary) { $('summary').innerHTML = ''; return; }
-  const when = new Date(summary.run.createdAt).toLocaleString();
   $('summary').innerHTML = `
     <div class="big">${summary.todayCount}</div>
     <p style="margin:2px 0 0"><b>new important ${summary.todayCount === 1 ? 'email' : 'emails'} found today</b></p>
-    <p class="muted small">${summary.flagged} flagged of ${summary.classified} emails from the last ${summary.days} days · ${esc(summary.run.model.split(':')[0])} · ${esc(when)}</p>
-    <ul class="mails">${summary.today.map((m) => `<li>${esc(m.subject)}<div class="from">${esc(m.from)}</div></li>`).join('')}</ul>
-    <p class="muted small" style="margin-top:12px">Basic summary for now: counts today's flagged emails only.</p>`;
+    <p class="muted small">${summary.flagged} important in the last ${summary.days} days · ${summary.classified} emails checked, ${summary.decidedByCode} of them decided by known senders · last check ${esc(when(summary.run.createdAt))}</p>
+    ${summary.important.length ? mailList(summary.important) : '<p class="muted small">Nothing important found yet.</p>'}`;
+}
+
+async function loadRange() {
+  const defaults = await api('/pull-defaults');
+  $('from').value = defaults.from;
+  $('rangeNote').textContent = defaults.lastPullAt
+    ? `Last checked ${when(defaults.lastPullAt)}. It starts from that day, and emails already checked are skipped, so only what's new is fetched.`
+    : 'First check: it looks back a few days. Emails already checked are never fetched again.';
+}
+
+async function loadKnown() {
+  const known = await api('/known-senders');
+  $('knownBox').hidden = known.count === 0;
+  $('knownSummary').textContent = `${known.count} known sender${known.count === 1 ? '' : 's'} skipped by the quick scan`;
+  $('known').innerHTML = known.senders.map((k) => `<div class="knownRow"><b>${esc(k.address)}</b> <span class="muted">· ${esc(k.reason)}</span></div>`).join('');
 }
 
 $('classify').onclick = async () => {
@@ -189,16 +241,21 @@ $('classify').onclick = async () => {
   button.disabled = true;
   button.dataset.busy = '1';
   $('jobMsg').className = 'muted';
+  $('live').innerHTML = '';
   try {
-    let job = await api('/classify-recent', { method: 'POST' });
+    let job = await api('/classify-recent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: $('from').value || undefined, to: $('to').value || undefined }) });
     while (job.state === 'pulling' || job.state === 'classifying') {
       $('jobMsg').textContent = job.progress;
+      showLive(job);
       await new Promise((resolve) => setTimeout(resolve, 1000));
       job = await api('/jobs/' + job.id);
     }
     if (job.state === 'error') throw new Error(job.error);
-    $('jobMsg').textContent = job.progress;
+    $('live').innerHTML = '';
+    $('jobMsg').textContent = [job.progress, job.alreadyHad ? `${job.alreadyHad} emails were already checked and skipped.` : '', job.moreWaiting ? 'More new emails are waiting: press Check mail again to continue.' : ''].filter(Boolean).join(' ');
     showSummary(await api('/recent'));
+    loadRange();
+    loadKnown();
   } catch (error) {
     $('jobMsg').className = 'err';
     $('jobMsg').textContent = error.message;
@@ -211,7 +268,8 @@ $('classify').onclick = async () => {
 
 (async () => {
   try {
-    await Promise.all([loadAuth(), loadContext(), loadTraining(), api('/recent').then(showSummary)]);
+    await loadAuth(); // sets the signed-in address the Gmail links need
+    await Promise.all([loadContext(), loadTraining(), loadRange(), loadKnown(), api('/recent').then(showSummary)]);
   } catch {
     $('page').innerHTML = '<div class="offline"><h1>Email Organizer</h1><p>The local server isn\'t responding.</p><p>Start it with <code>npm run ui</code> and reload this page.</p></div>';
   }
